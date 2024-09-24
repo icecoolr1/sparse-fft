@@ -33,11 +33,19 @@ class Model(nn.Module):
         # downsampling: b,c,s -> bc,n,w -> bc,w,n
         x = x.reshape(-1, self.seg_num_x, self.period_len).permute(0, 2, 1)
 
-        # sparse forecasting
-        y = self.linear(x)  # bc,w,m
+        # FFT-based forecasting
+    # 对时间维度（period_len）进行 FFT
+        X_fft = torch.fft.fft(x, dim=1)
 
-        # upsampling: bc,w,m -> bc,m,w -> b,c,s
-        y = y.permute(0, 2, 1).reshape(batch_size, self.enc_in, self.pred_len)
+        # 处理频域数据，例如截断高频分量
+        k = int(self.period_len * 0.5)  # 保留前一半的低频分量
+        X_fft_truncated = X_fft.clone()
+        X_fft_truncated[:, k:, :] = 0  # 截断高频
+
+        # 逆 FFT 得到时域预测
+        y_ifft = torch.fft.ifft(X_fft_truncated, dim=1).real  # 取实部
+        
+        y = y_ifft.permute(0, 2, 1).reshape(batch_size, -1, self.pred_len)
 
         # permute and denorm
         y = y.permute(0, 2, 1) + seq_mean
